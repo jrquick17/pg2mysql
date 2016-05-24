@@ -30,6 +30,15 @@ if ( ! isset($argv[1]) && ! isset($argv[2])) {
 }
 else {
 	if(isset($argv[3])) $config['engine']=$argv[3];
+
+	$file_size = filesize($argv[1]);
+	$file_size_mb = (int)($file_size / 1024 / 1024);
+	if ($file_size_mb > 20) {
+	    $memory_limit = sprintf('%dM', $file_size_mb * 3);
+		echo 'Readjusting memory limit to ' . $memory_limit . "\n";
+		ini_set('memory_limit',  $memory_limit);
+	}
+
 	pg2mysql_large($argv[1],$argv[2]);
 
 
