@@ -24,7 +24,7 @@ Boston, MA 02111-1307, USA.
 
 include "pg2mysql.inc.php";
 
-if(! ($argv[1] && $argv[2]) ) {
+if ( ! isset($argv[1]) && ! isset($argv[2])) {
 	echo "Usage: php pg2mysql_cli.php <inputfilename> <outputfilename> [engine]\n";
 	exit;
 }
