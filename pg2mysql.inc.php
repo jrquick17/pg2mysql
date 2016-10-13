@@ -221,6 +221,8 @@ function pg2mysql($input, $header = true)
                     $output = substr($output, 0, -2) . "\n";
                 }
             }
+
+
             $output .= $line;
         }
         if (substr($line, 0, 11) == "INSERT INTO") {
@@ -284,17 +286,27 @@ function pg2mysql($input, $header = true)
             $line = str_replace("\"", "`", $line);
             $pkey = $line;
             $linenumber++;
+
             if (isset($lines[$linenumber])) {
                 $line = $lines[$linenumber];
             } else {
                 $line = null;
             }
+
             if (strstr($line, " PRIMARY KEY ") && substr($line, -3, -1) == ");") {
                 //looks like we have a single line PRIMARY KEY definition, lets go ahead and add it
                 $output .= $pkey;
                 //the postgres and mysql syntax for this is (at least, in the example im looking at)
                 //identical, so we can just add it as is.
                 $output .= $line;
+            }
+
+
+            if ($config['engine'] == "InnoDB") {
+                if (substr($line, 0, 18) == "ADD CONSTRAINT fk_") {
+                    $output .= $pkey;
+                    $output .= $line . "\n";
+                }
             }
         }
         //while we're here, we might as well catch CREATE INDEX as well
@@ -307,6 +319,16 @@ function pg2mysql($input, $header = true)
                 $output .= "ALTER TABLE `{$tablename}` ADD INDEX ( {$columns} ) ;\n";
             }
         }
+        if (substr($line, 0, 19) == "CREATE UNIQUE INDEX") {
+            preg_match('/CREATE UNIQUE INDEX "?([a-zA-Z0-9_]*)"? ON "?([a-zA-Z0-9_]*)"? USING btree \((.*)\);/', $line, $matches);
+            $indexname = $matches[1];
+            $tablename = $matches[2];
+            $columns = $matches[3];
+            if ($tablename && $columns) {
+                $output .= "ALTER TABLE `{$tablename}` ADD UNIQUE `{$indexname}` ( {$columns} ) ;\n";
+            }
+        }
+
         if (substr($line, 0, 13) == 'DROP DATABASE')
             $output .= $line;
         if (substr($line, 0, 15) == 'CREATE DATABASE') {
@@ -327,9 +349,10 @@ function pg2mysql($input, $header = true)
                 $in_insert = FALSE;
                 if ($values) $output .= "INSERT INTO $heads VALUES\n" . implode(",\n", $values) . ";\n\n";
             } else {
+                $line = str_replace('\N', 'NULL', $line);
                 $vals = explode('	', $line);
                 foreach ($vals as $i => $val) {
-                    $vals[$i] = ($val == '\\N')
+                    $vals[$i] = ($val == '\N')
                         ? 'NULL'
                         : "'" . str_replace("'", "\\'", trim($val)) . "'";
                 }
