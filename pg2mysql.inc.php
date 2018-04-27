@@ -45,7 +45,7 @@ function getfieldname($l)
         }
     }
     //if its not in quotes, then it should (we hope!) be the first "word" on the line, up to the first space.
-    elseif (preg_match("([^\ ]*)", trim($l), $regs)) {
+    elseif (preg_match("/([^\ ]*)/", trim($l), $regs)) {
         if ($regs[1]) {
             return $regs[1];
         } else {
@@ -168,6 +168,7 @@ function pg2mysql($input, $header=true)
             $linenumber++;
             continue;
         }
+        
 
         if (substr($line, 0, 2)==");" && $in_create_table) {
             $in_create_table=false;
@@ -193,39 +194,39 @@ function pg2mysql($input, $header=true)
             $line=str_replace(" bool DEFAULT true", " bool DEFAULT 1", $line);
             $line=str_replace(" bool DEFAULT false", " bool DEFAULT 0", $line);
             $line=str_replace("` `text`", "` text", $line); // fix because pg_dump quotes text type for some reason
-            if (preg_match(" character varying\(([0-9]*)\)", $line, $regs)) {
+            if (preg_match("/ character varying\(([0-9]*)\)/", $line, $regs)) {
                 $num=$regs[1];
                 if ($num<=255) {
-                    $line=preg_replace(" character varying\([0-9]*\)", " varchar($num)", $line);
+                    $line=preg_replace("/ character varying\([0-9]*\)/", " varchar($num)", $line);
                 } else {
-                    $line=preg_replace(" character varying\([0-9]*\)", " text", $line);
+                    $line=preg_replace("/ character varying\([0-9]*\)/", " text", $line);
                 }
             }
             //character varying with no size, we will default to varchar(255)
-            if (preg_match(" character varying", $line)) {
-                $line=preg_replace(" character varying", " varchar(255)", $line);
+            if (preg_match("/ character varying/", $line)) {
+                $line=preg_replace("/ character varying/", " varchar(255)", $line);
             }
 
-            if (preg_match("DEFAULT \('([0-9]*)'::int", $line, $regs) ||
-                preg_match("DEFAULT \('([0-9]*)'::smallint", $line, $regs) ||
-                preg_match("DEFAULT \('([0-9]*)'::bigint", $line, $regs)
+            if (preg_match("/DEFAULT \('([0-9]*)'::int/", $line, $regs) ||
+                preg_match("/DEFAULT \('([0-9]*)'::smallint/", $line, $regs) ||
+                preg_match("/DEFAULT \('([0-9]*)'::bigint/", $line, $regs)
                         ) {
                 $num=$regs[1];
-                $line=preg_replace(" DEFAULT \('([0-9]*)'[^ ,]*", " DEFAULT $num ", $line);
+                $line=preg_replace("/ DEFAULT \('([0-9]*)'[^ ,]*/", " DEFAULT $num ", $line);
             }
-            if (preg_match("DEFAULT \(([0-9\-]*)\)", $line, $regs)) {
+            if (preg_match("/DEFAULT \(([0-9\-]*)\)/", $line, $regs)) {
                 $num=$regs[1];
-                $line=preg_replace(" DEFAULT \(([0-9\-]*)\)", " DEFAULT $num ", $line);
+                $line=preg_replace("/ DEFAULT \(([0-9\-]*)\)/", " DEFAULT $num ", $line);
             }
-            $line=preg_replace(" DEFAULT nextval\(.*\) ", " auto_increment ", $line);
-            $line=preg_replace("::.*,", ",", $line);
-            $line=preg_replace("::.*$", "\n", $line);
-            if (preg_match("character\(([0-9]*)\)", $line, $regs)) {
+            $line=preg_replace("/ DEFAULT nextval\(.*\) /", " auto_increment ", $line);
+            $line=preg_replace("/::.*,/", ",", $line);
+            $line=preg_replace("/::.*$/", "\n", $line);
+            if (preg_match("/character\(([0-9]*)\)/", $line, $regs)) {
                 $num=$regs[1];
                 if ($num<=255) {
-                    $line=preg_replace(" character\([0-9]*\)", " varchar($num)", $line);
+                    $line=preg_replace("/ character\([0-9]*\)/", " varchar($num)", $line);
                 } else {
-                    $line=preg_replace(" character\([0-9]*\)", " text", $line);
+                    $line=preg_replace("/ character\([0-9]*\)/", " text", $line);
                 }
             }
             //timestamps
@@ -316,7 +317,7 @@ function pg2mysql($input, $header=true)
                 //here is the regexp without escaping: (([^\]|^)(\\)*\)'
                 $line=preg_replace(array("/, E'/", "/(([^\\\\]|^)(\\\\\\\\)*\\\\)'/"), array(", '", '\1\\\''), $line);
                 $output.=$line;
-
+               
                 //					printf("inquotes: %d linenumber: %4d line: %s\n",$inquotes,$linenumber,$lines[$linenumber]);
 
                 $c=substr_count($line, "'");
@@ -357,29 +358,33 @@ function pg2mysql($input, $header=true)
                 $tablename=$matches[2];
                 $columns=str_replace("\"", "`", $matches[3]);
                 $output.="ALTER TABLE `{$tablename}` ADD INDEX ( {$columns} ) ;\n";
+               
             }
         }
-
+        
         if (substr($line, 0, 13) == 'DROP DATABASE') {
-            $output .= $line;
+            preg_match('/DROP DATABASE "([a-zA-Z0-9_]*)"/', $line, $matches);
+            $output .= "DROP DATABASE IF EXISTS `$matches[1]`;\n\n";
         }
 
         if (substr($line, 0, 15) == 'CREATE DATABASE') {
-            preg_match('/CREATE DATABASE ([a-zA-Z0-9_]*) .* ENCODING = \'(.*)\'/', $line, $matches);
+            preg_match('/CREATE DATABASE "([a-zA-Z0-9_]*)" .* ENCODING = \'(.*?)\'/', $line, $matches);
             $output .= "CREATE DATABASE `$matches[1]` DEFAULT CHARACTER SET $matches[2];\n\n";
+            $dbname = $matches[1];
         }
-
-        if (substr($line, 0, 8) == '\\connect') {
-            preg_match('/connect ([a-zA-Z0-9_]*)/', $line, $matches);
+       
+         if (substr($line, 0, 8) == '\\connect') {
+            preg_match('/connect "([a-zA-Z0-9_]*)"/', $line, $matches);
             $output .= "USE `$matches[1]`;\n\n";
-        }
-
-        if (substr($line, 0, 5) == 'COPY ') {
+        } 
+        
+        if (substr($line, 0, 5) == 'COPY ') { 
+       
             preg_match('/COPY (.*) FROM stdin/', $line, $matches);
             $heads = str_replace('"', "`", $matches[1]);
             $values = array();
             $in_insert = true;
-        } elseif ($in_insert) {
+        } elseif ($in_insert) { 
             if ($line == "\\.\n") {
                 $in_insert = false;
                 if ($values) {
@@ -403,6 +408,7 @@ function pg2mysql($input, $header=true)
                             $vals[$i] = "'" . str_replace("'", "\\'", trim($val)) . "'";
                     }
                 }
+              
                 $values[] = '(' . implode(',', $vals) . ')';
                 if (count($values) >= 1000) {
                     $output .= "INSERT INTO $heads VALUES\n" . implode(",\n", $values) . ";\n";
@@ -413,5 +419,5 @@ function pg2mysql($input, $header=true)
 
         $linenumber++;
     }
-    return $output;
+    return str_replace('`public`.','',$output);
 }
