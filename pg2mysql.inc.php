@@ -30,14 +30,27 @@ define('COPYRIGHT', "Lightbox Technologies Inc. http://www.lightbox.ca");
 //this is the default, it can be overridden here, or specified as the third parameter on the command line
 $config['engine']="InnoDB";
 $config['autoincrement_key_type'] = getenv("PG2MYSQL_AUTOINCREMENT_KEY_TYPE") ? getenv("PG2MYSQL_AUTOINCREMENT_KEY_TYPE") : "PRIMARY KEY";
+$config['domains'] = array();
+$config['domainschema'] = null;
+$config['verbose'] = false;
+$config['sqlite'] = false;
+$config['no-header'] = false;
 
 // Timezone to use
 date_default_timezone_set('UTC');
 
+function write_debug($message) {
+    global $config;
+    if ($config['verbose']) {
+        fwrite(STDERR, "$message\n");
+    }
+}
+
+
 function getfieldname($l)
 {
     //first check if its in nice quotes for us
-    if (preg_match("`(.*)`", $l, $regs)) {
+    if(preg_match("/`(.*)`/",$l,$regs)) {
         if ($regs[1]) {
             return $regs[1];
         } else {
@@ -45,13 +58,15 @@ function getfieldname($l)
         }
     }
     //if its not in quotes, then it should (we hope!) be the first "word" on the line, up to the first space.
-    elseif (preg_match("/([^\ ]*)/", trim($l), $regs)) {
+    else if(preg_match("/([^\ ]*)/",trim($l),$regs))
         if ($regs[1]) {
             return $regs[1];
         } else {
             return null;
         }
     }
+
+	return null;
 }
 
 function formatsize($s)
@@ -67,20 +82,32 @@ function formatsize($s)
     }
 }
 
+function pg2mysql_large($infilename,$outfilename) {
+    global $config;
 
-function pg2mysql_large($infilename, $outfilename)
-{
-    $fs=filesize($infilename);
-    $infp=fopen($infilename, "rt");
-    $outfp=fopen($outfilename, "wt");
+	$from_stdin = 0;
+	$fs = null;
+	if ($infilename == '-') {
+		$infilename = 'php://STDIN';
+		$from_stdin = 1;
+	} else {
+		$fs=filesize($infilename);
+	}
+	$infp=fopen($infilename,"rt");
+	if ($outfilename == '-') {
+		$outfilename = 'php://STDOUT';
+	}
+	$outfp=fopen($outfilename,"wt");\
 
     //we read until we get a semicolon followed by a newline (;\n);
     $pgsqlchunk=array();
     $chunkcount=1;
     $linenum=0;
     $inquotes=false;
-    $first=true;
-    echo "Filesize: ".formatsize($fs)."\n";
+    $first = !$config['no-header'];
+	if (!$from_stdin) {
+		fprintf(STDERR, "Filesize: ".formatsize($fs)."\n");
+	}
 
     while ($instr=fgets($infp)) {
         $linenum++;
@@ -103,6 +130,12 @@ function pg2mysql_large($infilename, $outfilename)
             $position=formatsize($currentpos);
             printf("Reading    progress: %3d%%   position: %7s   line: %9d   sql chunk: %9d  mem usage: %4dM\r", $percent, $position, $linenum, $chunkcount, $memusage);
         }
+		if( !$from_stdin && $linenum%10000 == 0) {
+			$currentpos=ftell($infp);
+			$percent=round($currentpos/$fs*100);
+			$position=formatsize($currentpos);
+			fprintf(STDERR, "Reading    progress: %3d%%   position: %7s   line: %9d   sql chunk: %9d  mem usage: %4dM\r",$percent,$position,$linenum,$chunkcount,$memusage);
+		}
 
         $currentpos=ftell($infp);
         $progress=$currentpos/$fs;
@@ -120,17 +153,31 @@ function pg2mysql_large($infilename, $outfilename)
                         print_r($pgsqlchunk);
                         echo "=======================\n";
             */
+		if(strlen($instr)>3 && ( $instr[$len-3]==")" && $instr[$len-2]==";" && $instr[$len-1]=="\n") && $inquotes==false) {
+			$chunkcount++;
+			if(!$from_stdin && $linenum%10000==0) {
+				$currentpos=ftell($infp);
+				$percent=round($currentpos/$fs*100);
+				$position=formatsize($currentpos);
+				fprintf(STDERR, "Processing progress: %3d%%   position: %7s   line: %9d   sql chunk: %9d  mem usage: %4dM\r",$percent,$position,$linenum,$chunkcount,$memusage);
+			}
+/*
+			echo "sending chunk:\n";
+			echo "=======================\n";
+			print_r($pgsqlchunk);
+			echo "=======================\n";
+*/
 
             $mysqlchunk=pg2mysql($pgsqlchunk, $first);
             fputs($outfp, $mysqlchunk);
 
-            $first=false;
-            $pgsqlchunk=array();
-            $mysqlchunk="";
-        }
-    }
-    echo "\n\n";
-    printf("Completed! %9d lines   %9d sql chunks\n\n", $linenum, $chunkcount);
+			$first=false;
+			$pgsqlchunk=array();
+			$mysqlchunk="";
+		}
+	}
+	fwrite(STDERR, "\n\n");
+	fprintf(STDERR, "Completed! %9d lines   %9d sql chunks\n\n",$linenum,$chunkcount);
 
     fclose($infp);
     fclose($outfp);
@@ -143,7 +190,7 @@ function pg2mysql($input, $header=true)
     if (is_array($input)) {
         $lines=$input;
     } else {
-        $lines=split("\n", $input);
+        $lines = explode("\n", $input);
     }
 
     if ($header) {
@@ -159,6 +206,8 @@ function pg2mysql($input, $header=true)
 
     $linenumber=0;
     $tbl_extra="";
+    $values = array();
+    $heads = null;
     while (isset($lines[$linenumber])) {
         $line=$lines[$linenumber];
         if (substr($line, 0, 12)=="CREATE TABLE") {
@@ -168,11 +217,23 @@ function pg2mysql($input, $header=true)
             $linenumber++;
             continue;
         }
-        
 
-        if (substr($line, 0, 2)==");" && $in_create_table) {
-            $in_create_table=false;
-            $line=") ENGINE={$config['engine']};\n\n";
+		if (!$config['domainschema'] && preg_match('/SET\s+search_path\s*=\s*([^,\s]+)/', $line, $matches)) {
+			$config['domainschema'] = $matches[1];
+			write_debug("Schema: " . $config['domainschema']);
+		}
+
+		if(substr($line,0,12)=="CREATE TABLE") {
+			$in_create_table=true;
+			$line=str_replace("\"","`",$line);
+			$output.=$line;
+			$linenumber++;
+			continue;
+		}
+
+		if(substr($line,0,2)==");" && $in_create_table) {
+			$in_create_table=false;
+			$line=")" . ($config['sqlite'] ? "" : " ENGINE={$config['engine']}") . ";\n\n";
 
             $output.=$tbl_extra;
             $output.=$line;
@@ -182,7 +243,18 @@ function pg2mysql($input, $header=true)
             continue;
         }
 
-        if ($in_create_table) {
+        if($in_create_table) {
+            /*
+                Replace domains with their PostgreSQL definitions
+            */
+            foreach ($config['domains'] AS $dom => $def) {
+                if ($config['domainschema']) {
+                    $line = preg_replace('/\b' . $config['domainschema'] . '.' . $dom . '\b/', $def, $line);
+                }
+
+                $line = preg_replace('/\b' . $dom . '\b/', $def, $line);
+            }
+
             $line=str_replace("\"", "`", $line);
             $line=str_replace(" integer", " int(11)", $line);
             $line=str_replace(" int_unsigned", " int(11) UNSIGNED", $line);
@@ -202,10 +274,33 @@ function pg2mysql($input, $header=true)
                     $line=preg_replace("/ character varying\([0-9]*\)/", " text", $line);
                 }
             }
+
             //character varying with no size, we will default to varchar(255)
             if (preg_match("/ character varying/", $line)) {
                 $line=preg_replace("/ character varying/", " varchar(255)", $line);
             }
+
+			$line=str_replace("\"","`",$line);
+			$line=str_replace(" integer"," int(11)",$line);
+			$line=str_replace(" int_unsigned"," int(11) UNSIGNED",$line);
+			$line=str_replace(" smallint_unsigned"," smallint UNSIGNED",$line);
+			$line=str_replace(" bigint_unsigned"," bigint UNSIGNED",$line);
+			$line=str_replace(" serial "," int(11) auto_increment ",$line);
+			$line=str_replace(" bytea"," BLOB",$line);
+			$line=str_replace(" boolean"," bool",$line);
+			$line=str_replace(" bool DEFAULT true"," bool DEFAULT 1",$line);
+			$line=str_replace(" bool DEFAULT false"," bool DEFAULT 0",$line);
+			if(preg_match("/ character varying\(([0-9]*)\)/",$line,$regs)) {
+				$num=$regs[1];
+				if($num<=255)
+					$line=preg_replace("/ character varying\([0-9]*\)/"," varchar($num)",$line);
+				else
+					$line=preg_replace("/ character varying\([0-9]*\)/"," text",$line);
+			}
+			//character varying with no size, we will default to varchar(255)
+			if(preg_match("/ character varying/",$line)) {
+				$line=preg_replace("/ character varying/"," varchar(255)",$line);
+			}
 
             if (preg_match("/DEFAULT \('([0-9]*)'::int/", $line, $regs) ||
                 preg_match("/DEFAULT \('([0-9]*)'::smallint/", $line, $regs) ||
@@ -317,7 +412,7 @@ function pg2mysql($input, $header=true)
                 //here is the regexp without escaping: (([^\]|^)(\\)*\)'
                 $line=preg_replace(array("/, E'/", "/(([^\\\\]|^)(\\\\\\\\)*\\\\)'/"), array(", '", '\1\\\''), $line);
                 $output.=$line;
-               
+
                 //					printf("inquotes: %d linenumber: %4d line: %s\n",$inquotes,$linenumber,$lines[$linenumber]);
 
                 $c=substr_count($line, "'");
@@ -341,14 +436,14 @@ function pg2mysql($input, $header=true)
             if (isset($lines[$linenumber])) {
                 $line=$lines[$linenumber];
 
-                if (strstr($line, " PRIMARY KEY ") && substr($line, -3, -1)==");") {
-                    //looks like we have a single line PRIMARY KEY definition, lets go ahead and add it
+                if(preg_match('/(PRIMARY KEY|UNIQUE).*\);\s*$/', $line)) {
+                    //looks like we have a single line PRIMARY KEY or UNIQUE definition, lets go ahead and add it
                     $output.=$pkey;
                     //MySQL and Postgres syntax are similar here, minus quoting differences
                     $output.=str_replace("\"", "`", $line);
                 }
             }
-        }
+		}
 
         //while we're here, we might as well catch CREATE INDEX as well
         if (substr($line, 0, 12)=="CREATE INDEX") {
@@ -358,10 +453,10 @@ function pg2mysql($input, $header=true)
                 $tablename=$matches[2];
                 $columns=str_replace("\"", "`", $matches[3]);
                 $output.="ALTER TABLE `{$tablename}` ADD INDEX ( {$columns} ) ;\n";
-               
+
             }
         }
-        
+
         if (substr($line, 0, 13) == 'DROP DATABASE') {
             preg_match('/DROP DATABASE "([a-zA-Z0-9_]*)"/', $line, $matches);
             $output .= "DROP DATABASE IF EXISTS `$matches[1]`;\n\n";
@@ -372,19 +467,31 @@ function pg2mysql($input, $header=true)
             $output .= "CREATE DATABASE `$matches[1]` DEFAULT CHARACTER SET $matches[2];\n\n";
             $dbname = $matches[1];
         }
-       
+
+        if (preg_match('/^\s*CREATE DOMAIN/', $line)) {
+            $def = $line;
+            while (!preg_match('/;\s*$/', $line) && isset($lines[$linenumber+1])) {
+                $linenumber++;
+                $line = $lines[$linenumber];
+                $def .= $line;
+            }
+
+            if (preg_match('/CREATE DOMAIN\s+([a-zA-Z0-9_\.]+)\s+AS\s+(.+?)(\s*;|\s+CONSTRAINT)/', $def, $matches)) {
+                $config['domains'][$matches[1]] = str_replace('NOT NULL', '', $matches[2]);
+            }
+        }
+
          if (substr($line, 0, 8) == '\\connect') {
             preg_match('/connect "([a-zA-Z0-9_]*)"/', $line, $matches);
             $output .= "USE `$matches[1]`;\n\n";
-        } 
-        
-        if (substr($line, 0, 5) == 'COPY ') { 
-       
+        }
+
+        if (substr($line, 0, 5) == 'COPY ') {
             preg_match('/COPY (.*) FROM stdin/', $line, $matches);
             $heads = str_replace('"', "`", $matches[1]);
             $values = array();
             $in_insert = true;
-        } elseif ($in_insert) { 
+        } elseif ($in_insert) {
             if ($line == "\\.\n") {
                 $in_insert = false;
                 if ($values) {
@@ -408,7 +515,7 @@ function pg2mysql($input, $header=true)
                             $vals[$i] = "'" . str_replace("'", "\\'", trim($val)) . "'";
                     }
                 }
-              
+
                 $values[] = '(' . implode(',', $vals) . ')';
                 if (count($values) >= 1000) {
                     $output .= "INSERT INTO $heads VALUES\n" . implode(",\n", $values) . ";\n";
@@ -420,4 +527,36 @@ function pg2mysql($input, $header=true)
         $linenumber++;
     }
     return str_replace('`public`.','',$output);
+}
+
+function read_domains($input)
+{
+	global $config;
+
+	if(is_array($input)) {
+		$lines=$input;
+	} else {
+		$lines=split("\n",$input);
+	}
+
+	while(count($lines)) {
+		$line = array_shift($lines);
+
+		if (preg_match('/SET\s+search_path\s*=\s*([^,\s]+)/', $line, $matches)) {
+			$config['domainschema'] = $matches[1];
+			write_debug("Schema: " . $config['domainschema']);
+		}
+
+		if (preg_match('/^\s*CREATE DOMAIN/', $line)) {
+			$def = $line;
+			while (!preg_match('/;\s*$/', $def) && count($lines)) {
+				$def .= array_shift($lines);
+			}
+
+			if (preg_match('/CREATE DOMAIN\s+([a-zA-Z0-9_\.]+)\s+AS\s+(.+?)(\s*;|\s+CONSTRAINT)/', $def, $matches)) {
+				// take NOT NULL out of domain def since it also appears on the column definition
+				$config['domains'][$matches[1]] = str_replace('NOT NULL', '', $matches[2]);
+			}
+		}
+	}
 }
