@@ -49,7 +49,7 @@ function write_debug($message) {
 function getfieldname($l)
 {
     //first check if its in nice quotes for us
-    if(preg_match("/`(.*)`/",$l,$regs)) {
+    if (preg_match("/`(.*)`/",$l,$regs)) {
         if ($regs[1]) {
             return $regs[1];
         } else {
@@ -57,7 +57,7 @@ function getfieldname($l)
         }
     }
     //if its not in quotes, then it should (we hope!) be the first "word" on the line, up to the first space.
-    elseif (preg_match("/([^\ ]*)/", trim($l), $regs)) {
+    else if (preg_match("/([^\ ]*)/", trim($l), $regs)) {
         if ($regs[1]) {
             return $regs[1];
         } else {
@@ -70,18 +70,18 @@ function getfieldname($l)
 
 function formatsize($s)
 {
-    if ($s<pow(2, 14)) {
+    if ($s < pow(2, 14)) {
         return "{$s}B";
-    } elseif ($s<pow(2, 20)) {
+    } else if ($s < pow(2, 20)) {
         return sprintf("%.1f", round($s/1024, 1))."K";
-    } elseif ($s<pow(2, 30)) {
+    } else if ($s < pow(2, 30)) {
         return sprintf("%.1f", round($s/1024/1024, 1))."M";
     } else {
         return sprintf("%.1f", round($s/1024/1024/1024, 1))."G";
     }
 }
 
-function pg2mysql_large($infilename, $outfilename) {
+function pg2mysql_large($infilename, $outfilename, $httpDownload = false) {
     global $config;
 
 	$from_stdin = 0;
@@ -104,50 +104,38 @@ function pg2mysql_large($infilename, $outfilename) {
     $linenum=0;
     $inquotes=false;
     $first = !$config['no-header'];
-	if (!$from_stdin) {
+	if (!$httpDownload && !$from_stdin) {
 		fprintf(STDERR, "Filesize: ".formatsize($fs)."\n");
 	}
 
-    while ($instr=fgets($infp)) {
+    while ($instr = fgets($infp)) {
         $linenum++;
-        $memusage=round(memory_get_usage(true)/1024/1024);
-        $len=strlen($instr);
-        $pgsqlchunk[]=$instr;
-        $c=substr_count($instr, "'");
-        //we have an odd number of ' marks
-        if ($c%2!=0) {
+        $memusage = round(memory_get_usage(true) / 1024 / 1024);
+        $len = strlen($instr);
+        $pgsqlchunk[] = $instr;
+        $c = substr_count($instr, "'");
+
+        if ($c % 2 != 0) {
             if ($inquotes) {
-                $inquotes=false;
+                $inquotes = false;
             } else {
-                $inquotes=true;
+                $inquotes = true;
             }
-        }
 
-		if( !$from_stdin && $linenum%10000 == 0) {
-			$currentpos=ftell($infp);
-			$percent=round($currentpos/$fs*100);
-			$position=formatsize($currentpos);
-			fprintf(STDERR, "Reading    progress: %3d%%   position: %7s   line: %9d   sql chunk: %9d  mem usage: %4dM\r",$percent,$position,$linenum,$chunkcount,$memusage);
-		}
+            $currentpos=ftell($infp);
+            $progress=$currentpos/$fs;
 
-        $currentpos=ftell($infp);
-        $progress=$currentpos/$fs;
-
-        if ($progress == 1.0 || (strlen($instr)>3 && ($instr[$len-3]==")" && $instr[$len-2]==";" && $instr[$len-1]=="\n") && $inquotes==false)) {
-            $chunkcount++;
-            if ($linenum%10000==0) {
-                $percent=round($progress*100);
-                $position=formatsize($currentpos);
-                printf("Processing progress: %3d%%   position: %7s   line: %9d   sql chunk: %9d  mem usage: %4dM\r", $percent, $position, $linenum, $chunkcount, $memusage);
+            if ($progress == 1.0 || (strlen($instr)>3 && ($instr[$len-3]==")" && $instr[$len-2]==";" && $instr[$len-1]=="\n") && $inquotes==false)) {
+                $chunkcount++;
             }
-		if(strlen($instr)>3 && ( $instr[$len-3]==")" && $instr[$len-2]==";" && $instr[$len-1]=="\n") && $inquotes==false) {
-			$chunkcount++;
-			if(!$from_stdin && $linenum%10000==0) {
-				$currentpos=ftell($infp);
-				$percent=round($currentpos/$fs*100);
-				$position=formatsize($currentpos);
-				fprintf(STDERR, "Processing progress: %3d%%   position: %7s   line: %9d   sql chunk: %9d  mem usage: %4dM\r",$percent,$position,$linenum,$chunkcount,$memusage);
-			}
+
+            if (!$httpDownload && !$from_stdin && $linenum % 10000 == 0) {
+                $percent = round($currentpos / $fs * 100);
+                $position = formatsize($currentpos);
+
+                fprintf(STDERR, "Reading  progress: %3d%%   position: %7s   line: %9d   sql chunk: %9d  mem usage: %4dM\r",$percent,$position,$linenum,$chunkcount,$memusage);
+            }
+
 
             $mysqlchunk=pg2mysql($pgsqlchunk, $first);
             fputs($outfp, $mysqlchunk);
@@ -157,8 +145,19 @@ function pg2mysql_large($infilename, $outfilename) {
 			$mysqlchunk="";
 		}
 	}
-	fwrite(STDERR, "\n\n");
-	fprintf(STDERR, "Completed! %9d lines   %9d sql chunks\n\n",$linenum,$chunkcount);
+
+    if ($httpDownload) {
+        ob_clean();
+
+        header("Content-type: application/octet-stream");
+        header("Content-Disposition: attachment; filename=$outfilename");
+        echo file_get_contents($outfilename);
+        @unlink($outfilename);
+        exit;
+    } else {
+        fwrite(STDERR, "\n\n");
+        fprintf(STDERR, "Completed! %9d lines   %9d sql chunks\n\n",$linenum,$chunkcount);
+    }
 
     fclose($infp);
     fclose($outfp);
@@ -204,7 +203,7 @@ function pg2mysql($input, $header=true)
 			write_debug("Schema: " . $config['domainschema']);
 		}
 
-		if(substr($line,0,12)=="CREATE TABLE") {
+		if (substr($line,0,12)=="CREATE TABLE") {
 			$in_create_table=true;
 			$line=str_replace("\"","`",$line);
 			$output.=$line;
@@ -212,7 +211,7 @@ function pg2mysql($input, $header=true)
 			continue;
 		}
 
-		if(substr($line,0,2)==");" && $in_create_table) {
+		if (substr($line,0,2)==");" && $in_create_table) {
 			$in_create_table=false;
 			$line=")" . ($config['sqlite'] ? "" : " ENGINE={$config['engine']}") . ";\n\n";
 
@@ -224,7 +223,7 @@ function pg2mysql($input, $header=true)
             continue;
         }
 
-        if($in_create_table) {
+        if ($in_create_table) {
             /*
                 Replace domains with their PostgreSQL definitions
             */
@@ -271,15 +270,15 @@ function pg2mysql($input, $header=true)
 			$line=str_replace(" boolean"," bool",$line);
 			$line=str_replace(" bool DEFAULT true"," bool DEFAULT 1",$line);
 			$line=str_replace(" bool DEFAULT false"," bool DEFAULT 0",$line);
-			if(preg_match("/ character varying\(([0-9]*)\)/",$line,$regs)) {
+			if (preg_match("/ character varying\(([0-9]*)\)/",$line,$regs)) {
 				$num=$regs[1];
-				if($num<=255)
+				if ($num<=255)
 					$line=preg_replace("/ character varying\([0-9]*\)/"," varchar($num)",$line);
 				else
 					$line=preg_replace("/ character varying\([0-9]*\)/"," text",$line);
 			}
 			//character varying with no size, we will default to varchar(255)
-			if(preg_match("/ character varying/",$line)) {
+			if (preg_match("/ character varying/",$line)) {
 				$line=preg_replace("/ character varying/"," varchar(255)",$line);
 			}
 
@@ -417,7 +416,7 @@ function pg2mysql($input, $header=true)
             if (isset($lines[$linenumber])) {
                 $line=$lines[$linenumber];
 
-                if(preg_match('/(PRIMARY KEY|UNIQUE).*\);\s*$/', $line)) {
+                if (preg_match('/(PRIMARY KEY|UNIQUE).*\);\s*$/', $line)) {
                     //looks like we have a single line PRIMARY KEY or UNIQUE definition, lets go ahead and add it
                     $output.=$pkey;
                     //MySQL and Postgres syntax are similar here, minus quoting differences
@@ -471,7 +470,7 @@ function pg2mysql($input, $header=true)
             $heads = str_replace('"', "`", $matches[1]);
             $values = array();
             $in_insert = true;
-        } elseif ($in_insert) {
+        } else if ($in_insert) {
             if ($line == "\\.\n") {
                 $in_insert = false;
                 if ($values) {
@@ -513,7 +512,7 @@ function read_domains($input)
 {
 	global $config;
 
-	if(is_array($input)) {
+	if (is_array($input)) {
 		$lines=$input;
 	} else {
 		$lines=split("\n",$input);
