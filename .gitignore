@@ -1,2 +1,4 @@
 *.sql
 *.dump
+
+.idea/
