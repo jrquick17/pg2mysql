@@ -46,7 +46,6 @@ function write_debug($message) {
     }
 }
 
-
 function getfieldname($l)
 {
     //first check if its in nice quotes for us
@@ -58,7 +57,7 @@ function getfieldname($l)
         }
     }
     //if its not in quotes, then it should (we hope!) be the first "word" on the line, up to the first space.
-    else if(preg_match("/([^\ ]*)/",trim($l),$regs))
+    elseif (preg_match("/([^\ ]*)/", trim($l), $regs)) {
         if ($regs[1]) {
             return $regs[1];
         } else {
@@ -82,7 +81,7 @@ function formatsize($s)
     }
 }
 
-function pg2mysql_large($infilename,$outfilename) {
+function pg2mysql_large($infilename, $outfilename) {
     global $config;
 
 	$from_stdin = 0;
@@ -124,12 +123,6 @@ function pg2mysql_large($infilename,$outfilename) {
             }
         }
 
-        if ($linenum%10000 == 0) {
-            $currentpos=ftell($infp);
-            $percent=round($currentpos/$fs*100);
-            $position=formatsize($currentpos);
-            printf("Reading    progress: %3d%%   position: %7s   line: %9d   sql chunk: %9d  mem usage: %4dM\r", $percent, $position, $linenum, $chunkcount, $memusage);
-        }
 		if( !$from_stdin && $linenum%10000 == 0) {
 			$currentpos=ftell($infp);
 			$percent=round($currentpos/$fs*100);
@@ -147,12 +140,6 @@ function pg2mysql_large($infilename,$outfilename) {
                 $position=formatsize($currentpos);
                 printf("Processing progress: %3d%%   position: %7s   line: %9d   sql chunk: %9d  mem usage: %4dM\r", $percent, $position, $linenum, $chunkcount, $memusage);
             }
-            /*
-                        echo "sending chunk:\n";
-                        echo "=======================\n";
-                        print_r($pgsqlchunk);
-                        echo "=======================\n";
-            */
 		if(strlen($instr)>3 && ( $instr[$len-3]==")" && $instr[$len-2]==";" && $instr[$len-1]=="\n") && $inquotes==false) {
 			$chunkcount++;
 			if(!$from_stdin && $linenum%10000==0) {
@@ -161,12 +148,6 @@ function pg2mysql_large($infilename,$outfilename) {
 				$position=formatsize($currentpos);
 				fprintf(STDERR, "Processing progress: %3d%%   position: %7s   line: %9d   sql chunk: %9d  mem usage: %4dM\r",$percent,$position,$linenum,$chunkcount,$memusage);
 			}
-/*
-			echo "sending chunk:\n";
-			echo "=======================\n";
-			print_r($pgsqlchunk);
-			echo "=======================\n";
-*/
 
             $mysqlchunk=pg2mysql($pgsqlchunk, $first);
             fputs($outfp, $mysqlchunk);
@@ -453,7 +434,6 @@ function pg2mysql($input, $header=true)
                 $tablename=$matches[2];
                 $columns=str_replace("\"", "`", $matches[3]);
                 $output.="ALTER TABLE `{$tablename}` ADD INDEX ( {$columns} ) ;\n";
-
             }
         }
 
