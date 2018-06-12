@@ -115,6 +115,7 @@ function pg2mysql_large($infilename, $outfilename, $httpDownload = false) {
         $pgsqlchunk[] = $instr;
         $c = substr_count($instr, "'");
 
+        //we have an odd number of ' marks
         if ($c % 2 != 0) {
             if ($inquotes) {
                 $inquotes = false;
@@ -141,8 +142,8 @@ function pg2mysql_large($infilename, $outfilename, $httpDownload = false) {
             fputs($outfp, $mysqlchunk);
 
 			$first=false;
-			$pgsqlchunk=array();
-			$mysqlchunk="";
+			$pgsqlchunk = array();
+			$mysqlchunk = "";
 		}
 	}
 
@@ -163,8 +164,7 @@ function pg2mysql_large($infilename, $outfilename, $httpDownload = false) {
     fclose($outfp);
 }
 
-function pg2mysql($input, $header=true)
-{
+function pg2mysql($input, $header = true) {
     global $config;
 
     if (is_array($input)) {
@@ -190,10 +190,10 @@ function pg2mysql($input, $header=true)
     $heads = null;
     while (isset($lines[$linenumber])) {
         $line=$lines[$linenumber];
-        if (substr($line, 0, 12)=="CREATE TABLE") {
-            $in_create_table=true;
-            $line=str_replace("\"", "`", $line);
-            $output.=$line;
+        if (substr($line, 0, 12) == "CREATE TABLE") {
+            $in_create_table = true;
+            $line = str_replace("\"", "`", $line);
+            $output .= $line;
             $linenumber++;
             continue;
         }
@@ -307,8 +307,9 @@ function pg2mysql($input, $header=true)
             //timestamps
             $line=str_replace(" timestamp with time zone", " timestamp", $line);
             $line=str_replace(" timestamp without time zone", " timestamp", $line);
-
-            // Strip unsupported timezone information in date fields
+            $line = str_replace(" timestamp(0) without time zone", " timestamp", $line);
+            $line = str_replace(" timestamp DEFAULT NULL", " DATETIME DEFAULT NULL", $line);
+            $line = str_replace(" timestamp NOT NULL", " DATETIME DEFAULT CURRENT_TIMESTAMP", $line);
             $line=preg_replace("/ date DEFAULT '(.*)(\+|\-).*'/", ' date DEFAULT \'${1}\'', $line);
 
             //time
@@ -317,6 +318,7 @@ function pg2mysql($input, $header=true)
 
             $line=str_replace(" timestamp DEFAULT now()", " timestamp DEFAULT CURRENT_TIMESTAMP", $line);
             $line=preg_replace("/ timestamp( NOT NULL)?(,|$)/", ' timestamp DEFAULT 0${1}${2}', $line);
+            $line = str_replace(" timestamp DEFAULT now()", " timestamp DEFAULT CURRENT_TIMESTAMP", $line);
 
             // Remove defaults pointing to functions
             $line=preg_replace("/ DEFAULT .*\(\)/", "", $line);
@@ -422,6 +424,13 @@ function pg2mysql($input, $header=true)
                     //MySQL and Postgres syntax are similar here, minus quoting differences
                     $output.=str_replace("\"", "`", $line);
                 }
+
+                if ($config['engine'] == "InnoDB") {
+                    if (substr($line, 0, 18) == "ADD CONSTRAINT fk_") {
+                        $output .= $pkey;
+                        $output .= $line . "\n";
+                    }
+                }
             }
 		}
 
@@ -477,6 +486,7 @@ function pg2mysql($input, $header=true)
                     $output .= "INSERT INTO $heads VALUES\n" . implode(",\n", $values) . ";\n\n";
                 }
             } else {
+                $line = str_replace('\N', 'NULL', $line);
                 $vals = explode('	', $line);
                 foreach ($vals as $i => $val) {
                     $val = trim($val);

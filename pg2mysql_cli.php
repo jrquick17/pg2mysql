@@ -144,6 +144,14 @@ if (!$input_file) {
 }
 write_debug("Input File: $input_file");
 
+$file_size = filesize($input_file);
+$file_size_mb = (int)($file_size / 1024 / 1024);
+if ($file_size_mb > 20) {
+    $memory_limit = sprintf('%dM', $file_size_mb * 3);
+    echo 'Readjusting memory limit to ' . $memory_limit . "\n";
+    ini_set('memory_limit',  $memory_limit);
+}
+
 // default to STDOUT
 if (!$output_file) {
 	$output_file = '-';
