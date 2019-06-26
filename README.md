@@ -2,7 +2,9 @@ pg2mysql
 
 ### ABOUT
 
+Convert/Migrate existing PostgreSQL databases into MySQL.
 
+* Visit [my website](https://jrquick.com) for me cool stuff!
 
 ### INSTALLATION/USAGE
 
