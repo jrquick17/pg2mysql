@@ -1,12 +1,20 @@
-pg2mysql
+# pg2mysql
+  
+![](logo.png)
 
-### ABOUT
+## Index ##
+
+* [About](#about)
+* [Setup](#setup)
+* [Contributors](#contributors)
+
+## About
 
 Convert/Migrate existing PostgreSQL databases into MySQL.
 
 * Visit [my website](https://jrquick.com) for me cool stuff!
 
-### INSTALLATION/USAGE
+## Setup
 
 To use, simply unzip into your website somewhere, and point your browser at:
 
@@ -19,22 +27,20 @@ postgres code to be converted) and returns the mysql code. eg:
     $mysql = pg2mysql($postgres);
 
 
-#### COMMAND LINE
+#### Command Line
 
 Command line syntax and options can be viewed using:
 
     php pg2mysql_cli.php --help
 
 
-#### DOMAIN SUPPORT
-
-### AUTHORS
+## Contributors
 
 * [Lightbox Technolgoies](http://www.lightbox.org)
 * James Grant<james@lightbox.org>
 * [Jeremy Quick](https://github.com/jrquick17)
 
-## DONATE
+### Donate
 * [Lightbox Technolgoies](http://www.lightbox.org)
 ** Paypal: paypal@lightbox.org
 ** Bitcoin: 1Gt6D2HcwnoLCeDMkP6xKMC4P65g42TiVn
