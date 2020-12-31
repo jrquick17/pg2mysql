@@ -39,15 +39,14 @@ $config['no-header'] = false;
 // Timezone to use
 date_default_timezone_set('UTC');
 
-function write_debug($message) {
+function writeDebug($message) {
     global $config;
     if ($config['verbose']) {
         fwrite(STDERR, "$message\n");
     }
 }
 
-function getfieldname($l)
-{
+function getFieldName($l) {
     //first check if its in nice quotes for us
     if (preg_match("/`(.*)`/",$l,$regs)) {
         if ($regs[1]) {
@@ -57,7 +56,7 @@ function getfieldname($l)
         }
     }
     //if its not in quotes, then it should (we hope!) be the first "word" on the line, up to the first space.
-    else if (preg_match("/([^\ ]*)/", trim($l), $regs)) {
+    else if (preg_match("/([^\s]*)/", trim($l), $regs)) {
         if ($regs[1]) {
             return $regs[1];
         } else {
@@ -68,8 +67,7 @@ function getfieldname($l)
 	return null;
 }
 
-function formatsize($s)
-{
+function formatSize($s) {
     if ($s < pow(2, 14)) {
         return "{$s}B";
     } else if ($s < pow(2, 20)) {
@@ -84,28 +82,28 @@ function formatsize($s)
 function pg2mysql_large($infilename, $outfilename, $httpDownload = false) {
     global $config;
 
-	$from_stdin = 0;
-	$fs = null;
-	if ($infilename == '-') {
-		$infilename = 'php://STDIN';
-		$from_stdin = 1;
-	} else {
-		$fs=filesize($infilename);
-	}
+    $from_stdin = 0;
+    $fs = null;
+    if ($infilename == '-') {
+        $infilename = 'php://STDIN';
+        $from_stdin = 1;
+    } else {
+        $fs=filesize($infilename);
+    }
 	$infp=fopen($infilename,"rt");
 	if ($outfilename == '-') {
 		$outfilename = 'php://STDOUT';
 	}
 	$outfp=fopen($outfilename,"wt");\
 
-    //we read until we get a semicolon followed by a newline (;\n);
-    $pgsqlchunk=array();
-    $chunkcount=1;
-    $linenum=0;
-    $inquotes=false;
+    // we read until we get a semicolon followed by a newline (;\n);
+    $pgsqlchunk = [];
+    $chunkcount = 1;
+    $linenum = 0;
+    $inquotes = false;
     $first = !$config['no-header'];
 	if (!$httpDownload && !$from_stdin) {
-		fprintf(STDERR, "Filesize: ".formatsize($fs)."\n");
+		fprintf(STDERR, "Filesize: ".formatSize($fs)."\n");
 	}
 
     while ($instr = fgets($infp)) {
@@ -132,7 +130,7 @@ function pg2mysql_large($infilename, $outfilename, $httpDownload = false) {
 
             if (!$httpDownload && !$from_stdin && $linenum % 10000 == 0) {
                 $percent = round($currentpos / $fs * 100);
-                $position = formatsize($currentpos);
+                $position = formatSize($currentpos);
 
                 fprintf(STDERR, "Reading  progress: %3d%%   position: %7s   line: %9d   sql chunk: %9d  mem usage: %4dM\r",$percent,$position,$linenum,$chunkcount,$memusage);
             }
@@ -143,7 +141,6 @@ function pg2mysql_large($infilename, $outfilename, $httpDownload = false) {
 
 			$first=false;
 			$pgsqlchunk = array();
-			$mysqlchunk = "";
 		}
 	}
 
@@ -200,7 +197,7 @@ function pg2mysql($input, $header = true) {
 
 		if (!$config['domainschema'] && preg_match('/SET\s+search_path\s*=\s*([^,\s]+)/', $line, $matches)) {
 			$config['domainschema'] = $matches[1];
-			write_debug("Schema: " . $config['domainschema']);
+			writeDebug("Schema: " . $config['domainschema']);
 		}
 
 		if (substr($line,0,12)=="CREATE TABLE") {
@@ -235,17 +232,17 @@ function pg2mysql($input, $header = true) {
                 $line = preg_replace('/\b' . $dom . '\b/', $def, $line);
             }
 
-            $line=str_replace("\"", "`", $line);
-            $line=str_replace(" integer", " int(11)", $line);
-            $line=str_replace(" int_unsigned", " int(11) UNSIGNED", $line);
-            $line=str_replace(" smallint_unsigned", " smallint UNSIGNED", $line);
-            $line=str_replace(" bigint_unsigned", " bigint UNSIGNED", $line);
-            $line=str_replace(" serial ", " int(11) auto_increment ", $line);
-            $line=str_replace(" bytea", " BLOB", $line);
-            $line=str_replace(" boolean", " bool", $line);
-            $line=str_replace(" bool DEFAULT true", " bool DEFAULT 1", $line);
-            $line=str_replace(" bool DEFAULT false", " bool DEFAULT 0", $line);
-            $line=str_replace("` `text`", "` text", $line); // fix because pg_dump quotes text type for some reason
+            $line = str_replace("\"", "`", $line);
+            $line = str_replace(" integer", " int(11)", $line);
+            $line = str_replace(" int_unsigned", " int(11) UNSIGNED", $line);
+            $line = str_replace(" smallint_unsigned", " smallint UNSIGNED", $line);
+            $line = str_replace(" bigint_unsigned", " bigint UNSIGNED", $line);
+            $line = str_replace(" serial ", " int(11) auto_increment ", $line);
+            $line = str_replace(" bytea", " BLOB", $line);
+            $line = str_replace(" boolean", " bool", $line);
+            $line = str_replace(" bool DEFAULT true", " bool DEFAULT 1", $line);
+            $line = str_replace(" bool DEFAULT false", " bool DEFAULT 0", $line);
+            $line = str_replace("` `text`", "` text", $line); // fix because pg_dump quotes text type for some reason
             if (preg_match("/ character varying\(([0-9]*)\)/", $line, $regs)) {
                 $num=$regs[1];
                 if ($num<=255) {
@@ -324,13 +321,13 @@ function pg2mysql($input, $header = true) {
             $line=preg_replace("/ DEFAULT .*\(\)/", "", $line);
 
             if (strstr($line, "auto_increment")) {
-                $field=getfieldname($line);
+                $field=getFieldName($line);
                 $tbl_extra.=", " . $config['autoincrement_key_type'] . "(`$field`)\n";
             }
 
-            $specialfields=array("repeat","status","type","call", "key", "regexp");
+            $specialfields=["repeat","status","type","call", "key", "regexp"];
 
-            $field=getfieldname($line);
+            $field=getFieldName($line);
             if (in_array($field, $specialfields)) {
                 $line=str_replace("$field ", "`$field` ", $line);
             }
@@ -518,8 +515,7 @@ function pg2mysql($input, $header = true) {
     return str_replace('`public`.','',$output);
 }
 
-function read_domains($input)
-{
+function readDomains($input) {
 	global $config;
 
 	if (is_array($input)) {
@@ -533,7 +529,7 @@ function read_domains($input)
 
 		if (preg_match('/SET\s+search_path\s*=\s*([^,\s]+)/', $line, $matches)) {
 			$config['domainschema'] = $matches[1];
-			write_debug("Schema: " . $config['domainschema']);
+			writeDebug("Schema: " . $config['domainschema']);
 		}
 
 		if (preg_match('/^\s*CREATE DOMAIN/', $line)) {

@@ -142,7 +142,7 @@ while (count($argv)) {
 if (!$input_file) {
 	$input_file = '-';
 }
-write_debug("Input File: $input_file");
+writeDebug("Input File: $input_file");
 
 $file_size = filesize($input_file);
 $file_size_mb = (int)($file_size / 1024 / 1024);
@@ -156,15 +156,15 @@ if ($file_size_mb > 20) {
 if (!$output_file) {
 	$output_file = '-';
 }
-write_debug("Output File: $output_file");
+writeDebug("Output File: $output_file");
 
 if ($domain_file) {
-	write_debug("Domain definitions file: $domain_file");
-	read_domains(file($domain_file));
+	writeDebug("Domain definitions file: $domain_file");
+	readDomains(file($domain_file));
 	foreach ($config['domains'] as $name => $def) {
-		write_debug("    $name --> $def");
+		writeDebug("    $name --> $def");
 	}
-	write_debug("");
+	writeDebug("");
 }
 
 pg2mysql_large($input_file, $output_file);
